@@ -1,0 +1,8 @@
+
+services:
+  toolbox:
+    build:
+      dockerfile: Dockerfile
+      target: toolbox
+    volumes:
+      - ".:/app"
