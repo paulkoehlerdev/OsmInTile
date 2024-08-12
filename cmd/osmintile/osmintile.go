@@ -7,6 +7,7 @@ import (
 	"github.com/paulkoehlerdev/OsmInTile/pkg/osmintile/domain/service"
 	"github.com/paulkoehlerdev/OsmInTile/pkg/osmintile/infrastructure"
 	"github.com/paulkoehlerdev/OsmInTile/pkg/osmintile/interface/http"
+	"log"
 	"net"
 )
 
@@ -27,6 +28,7 @@ func main() {
 	}
 
 	if *osmFile != "" {
+		log.Println("Loading osm file", *osmFile)
 		err := osmDataRepo.Import(context.Background(), *osmFile)
 		if err != nil {
 			panic(err)
@@ -39,6 +41,7 @@ func main() {
 
 	app := application.New(styleSvc, tilesSvc)
 
+	log.Println("Starting OsmInTile server")
 	err = http.ServeApplication(listener, app)
 	if err != nil {
 		panic(err)

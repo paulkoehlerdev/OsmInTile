@@ -2,9 +2,11 @@ package repository
 
 import (
 	"context"
+	"github.com/paulmach/orb"
+	"github.com/paulmach/orb/geojson"
 )
 
 type OsmDataRepository interface {
 	Import(ctx context.Context, path string) error
-	// Getter function for each Layer
+	GetBuildings(ctx context.Context, bound orb.Bound) (*geojson.FeatureCollection, error)
 }
