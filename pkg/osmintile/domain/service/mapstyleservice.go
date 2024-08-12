@@ -34,14 +34,14 @@ func (m *mapStyleService) defaultMapStyle() entities.MapStyle {
 				ID:          "Points",
 				Type:        "fill",
 				Source:      OSMINTILE_VECTOR_SOURCE,
-				SourceLayer: "test-polygons",
+				SourceLayer: "test-pattern",
 			},
 		},
 		Sources: map[string]entities.Source{
 			OSMINTILE_VECTOR_SOURCE: {
 				Type: "vector",
 				TilesURLs: []string{
-					fmt.Sprintf("%s/tiles/{z}/{x}/{y}.pbf", m.publicUrl),
+					fmt.Sprintf("%s/tiles/{z}/{x}/{y}", m.publicUrl),
 				},
 			},
 		},
