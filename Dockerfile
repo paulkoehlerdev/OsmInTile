@@ -1,4 +1,4 @@
-FROM golang:1.22.6-bullseye AS toolbox
+FROM golang:1.23-bookworm AS toolbox
 
 WORKDIR /app
 
