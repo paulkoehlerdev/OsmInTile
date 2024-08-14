@@ -58,6 +58,7 @@ CREATE TABLE IF NOT EXISTS relation_member
     relation_id bigint                                                                                 NOT NULL,
     member_type text CHECK ( member_type = 'way' OR member_type = 'node' OR member_type = 'relation' ) NOT NULL,
     member_id   bigint                                                                                 NOT NULL,
+    member_role text                                                                                   NOT NULL,
     sequence_id int                                                                                    NOT NULL
 );
 CREATE INDEX IF NOT EXISTS relation_member_relation_id ON relation_member (relation_id);

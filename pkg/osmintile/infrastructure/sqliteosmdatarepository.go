@@ -4,6 +4,7 @@ import (
 	"compress/bzip2"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"github.com/paulkoehlerdev/OsmInTile/migrations"
 	_ "github.com/paulkoehlerdev/OsmInTile/pkg/libraries/sqlitedriver"
@@ -51,13 +52,43 @@ func (s *SqliteOsmDataRepository) init() (*SqliteOsmDataRepository, error) {
 			FROM node
 			JOIN main.way_node wn on node.node_id = wn.node_id
 			WHERE wn.way_id = way.way_id
-		)) as geom
+		)) as geom,
+		(
+		    SELECT json_group_object(way_tag.key, way_tag.value)
+		    FROM way_tag
+		    WHERE way_tag.way_id = way.way_id
+		) as json
 		FROM way
 		WHERE way.way_id IN (SELECT way_tag.way_id FROM way_tag WHERE way_tag.key = 'indoor')
 		  AND way.way_id IN (SELECT way_tag.way_id FROM way_tag WHERE way_tag.key = 'level' AND way_tag.value LIKE ?)
 		  AND (SELECT n.node_id FROM (SELECT way_node.node_id as node_id, MAX(way_node.sequence_id) FROM way_node WHERE way_node.way_id = way.way_id) as n) =
 			  (SELECT n.node_id FROM (SELECT way_node.node_id as node_id, MIN(way_node.sequence_id) FROM way_node WHERE way_node.way_id = way.way_id) as n)
-		  AND way.way_id IN (SELECT DISTINCT way_node.way_id FROM way_node JOIN node on way_node.node_id = node.node_id WHERE ST_Intersects(node.geom, ST_GeomFromWKB(?)));
+		  AND way.way_id IN (SELECT DISTINCT way_node.way_id FROM way_node JOIN node on way_node.node_id = node.node_id WHERE ST_Intersects(node.geom, ST_GeomFromWKB(?)))
+		UNION ALL
+		SELECT ST_AsBinary(Polygonize(s.geom)) as geom,
+	   	(
+		    SELECT json_group_object(relation_tag.key, relation_tag.value)
+		    FROM relation_tag
+		    WHERE relation_tag.relation_id = s.relation_id
+		) as json
+		FROM
+		(SELECT (
+			SELECT MakeLine(geom)
+			FROM node
+		 	JOIN main.way_node wn on node.node_id = wn.node_id
+			WHERE wn.way_id = relation_member.member_id
+			ORDER BY wn.sequence_id
+		) as geom, relation_id
+		FROM relation_member
+		WHERE relation_id IN (SELECT relation_tag.relation_id FROM relation_tag WHERE relation_tag.key = 'indoor')
+		  AND relation_id IN (SELECT relation_tag.relation_id FROM relation_tag WHERE relation_tag.key = 'level' AND relation_tag.value LIKE ?)
+		  AND relation_id IN (SELECT relation_tag.relation_id FROM relation_tag WHERE relation_tag.key = 'type' AND relation_tag.value = 'multipolygon')
+		  AND member_type = 'way'
+		  AND (SELECT n.node_id FROM (SELECT way_node.node_id as node_id, MAX(way_node.sequence_id) FROM way_node WHERE way_node.way_id = relation_member.member_id) as n) =
+			  (SELECT n.node_id FROM (SELECT way_node.node_id as node_id, MIN(way_node.sequence_id) FROM way_node WHERE way_node.way_id = relation_member.member_id) as n)
+		  AND member_id IN (SELECT DISTINCT way_node.way_id FROM way_node JOIN node on way_node.node_id = node.node_id WHERE ST_Intersects(node.geom, ST_GeomFromWKB(?)))
+		ORDER BY member_role = 'outer' DESC, sequence_id) as s
+		GROUP BY s.relation_id
 	`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to prepare statement: %w", err)
@@ -88,7 +119,7 @@ func (s *SqliteOsmDataRepository) GetBase(ctx context.Context, level int, bound 
 	}
 
 	levelStr := fmt.Sprintf("%%%d%%", level)
-	rows, err := s.getBasePreparedStatement.QueryContext(ctx, levelStr, boundStr)
+	rows, err := s.getBasePreparedStatement.QueryContext(ctx, levelStr, boundStr, levelStr, boundStr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute query: %w", err)
 	}
@@ -102,7 +133,8 @@ func (s *SqliteOsmDataRepository) loadWBKRowsIntoGeojson(rows *sql.Rows) (*geojs
 
 	for rows.Next() {
 		var wbkBytes []byte
-		if err := rows.Scan(&wbkBytes); err != nil {
+		var jsonStr string
+		if err := rows.Scan(&wbkBytes, &jsonStr); err != nil {
 			return nil, fmt.Errorf("failed to scan row: %w", err)
 		}
 
@@ -111,7 +143,14 @@ func (s *SqliteOsmDataRepository) loadWBKRowsIntoGeojson(rows *sql.Rows) (*geojs
 			return nil, fmt.Errorf("failed to unmarshal geom: %w", err)
 		}
 
-		out.Append(geojson.NewFeature(geom))
+		feat := geojson.NewFeature(geom)
+
+		err = json.Unmarshal([]byte(jsonStr), &feat.Properties)
+		if err != nil {
+			return nil, fmt.Errorf("failed to unmarshal properties: %w", err)
+		}
+
+		out.Append(feat)
 	}
 
 	return out, nil
@@ -218,8 +257,8 @@ func (s *SqliteOsmDataRepository) Import(ctx context.Context, path string) error
 func (s *SqliteOsmDataRepository) relationImportPass(scanner osm.Scanner, includedObjects map[osm.FeatureID]struct{}) error {
 	includeRelation := func(relation *osm.Relation) {
 		includedObjects[relation.FeatureID()] = struct{}{}
-		for _, member := range relation.Members {
-			includedObjects[member.FeatureID()] = struct{}{}
+		for _, member := range relation.Members.FeatureIDs() {
+			includedObjects[member] = struct{}{}
 		}
 	}
 
@@ -280,8 +319,8 @@ func (s *SqliteOsmDataRepository) relationImportPass(scanner osm.Scanner, includ
 func (s *SqliteOsmDataRepository) wayImportPass(scanner osm.Scanner, includedObjects map[osm.FeatureID]struct{}) error {
 	includeWay := func(way *osm.Way) {
 		includedObjects[way.FeatureID()] = struct{}{}
-		for _, node := range way.Nodes {
-			includedObjects[node.FeatureID()] = struct{}{}
+		for _, node := range way.Nodes.FeatureIDs() {
+			includedObjects[node] = struct{}{}
 		}
 	}
 

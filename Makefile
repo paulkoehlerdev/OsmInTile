@@ -10,7 +10,7 @@ test: setup
 
 .PHONY: import
 import: setup
-	docker-compose exec toolbox go run ./cmd/osmintile/ --osm-file data/stachus-latest.osm.pbf --database db.sqlite
+	docker-compose exec toolbox go run ./cmd/osmintile/ --osm-file data/map.osm --database db.sqlite
 
 .PHONY: run
 run: setup

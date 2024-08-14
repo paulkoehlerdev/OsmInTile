@@ -53,7 +53,7 @@ func (m *mapTilesService) GetMapTile(ctx context.Context, level int, tile maptil
 func (m *mapTilesService) getFeaturesFor(ctx context.Context, level int, bounds orb.Bound) (map[string]*geojson.FeatureCollection, error) {
 	base, err := m.dataRepository.GetBase(ctx, level, bounds)
 	if err != nil {
-		return nil, fmt.Errorf("get pois failed: %w", err)
+		return nil, fmt.Errorf("get base failed: %w", err)
 	}
 
 	return map[string]*geojson.FeatureCollection{

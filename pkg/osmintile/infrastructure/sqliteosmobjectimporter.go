@@ -94,7 +94,7 @@ func (s *sqliteosmobjectimporter) prepareStatements(tx *sql.Tx) error {
 	}
 
 	s.insertRelationMemberPreparedStatement, err = tx.Prepare(
-		"INSERT OR REPLACE INTO relation_member (relation_id, member_type, member_id, sequence_id) VALUES (?, ?, ?, ?)",
+		"INSERT OR REPLACE INTO relation_member (relation_id, member_type, member_id, member_role, sequence_id) VALUES (?, ?, ?, ?, ?)",
 	)
 	if err != nil {
 		return err
@@ -157,7 +157,7 @@ func (s *sqliteosmobjectimporter) importRelation(relation *osm.Relation) error {
 	}
 
 	for sequenceID, member := range relation.Members {
-		_, err := s.insertRelationMemberPreparedStatement.Exec(relation.ID, member.Type, member.ElementID(), sequenceID)
+		_, err := s.insertRelationMemberPreparedStatement.Exec(relation.ID, member.Type, int32(member.Ref), member.Role, sequenceID)
 		if err != nil {
 			return fmt.Errorf("failed to insert relation_member: %w", err)
 		}
