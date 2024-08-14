@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"github.com/paulkoehlerdev/OsmInTile/pkg/libraries/ptr"
 	"github.com/paulkoehlerdev/OsmInTile/pkg/osmintile/domain/entities"
 )
 
@@ -35,6 +36,9 @@ func (m *mapStyleService) defaultMapStyle() entities.MapStyle {
 				Type:        "fill",
 				Source:      OSMINTILE_VECTOR_SOURCE,
 				SourceLayer: "indoor-base",
+				Paint: entities.Paint{
+					FillLayer: &entities.FillLayer{FillColor: ptr.Ptr("#FF0000")},
+				},
 			},
 		},
 		Sources: map[string]entities.Source{

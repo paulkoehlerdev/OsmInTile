@@ -18,7 +18,6 @@ import (
 	"log"
 	"os"
 	"runtime"
-	"strconv"
 	"strings"
 )
 
@@ -55,7 +54,7 @@ func (s *SqliteOsmDataRepository) init() (*SqliteOsmDataRepository, error) {
 		)) as geom
 		FROM way
 		WHERE way.way_id IN (SELECT way_tag.way_id FROM way_tag WHERE way_tag.key = 'indoor')
-		  AND way.way_id IN (SELECT way_tag.way_id FROM way_tag WHERE way_tag.key = 'level' AND way_tag.value = ?)
+		  AND way.way_id IN (SELECT way_tag.way_id FROM way_tag WHERE way_tag.key = 'level' AND way_tag.value LIKE ?)
 		  AND (SELECT n.node_id FROM (SELECT way_node.node_id as node_id, MAX(way_node.sequence_id) FROM way_node WHERE way_node.way_id = way.way_id) as n) =
 			  (SELECT n.node_id FROM (SELECT way_node.node_id as node_id, MIN(way_node.sequence_id) FROM way_node WHERE way_node.way_id = way.way_id) as n)
 		  AND way.way_id IN (SELECT DISTINCT way_node.way_id FROM way_node JOIN node on way_node.node_id = node.node_id WHERE ST_Intersects(node.geom, ST_GeomFromWKB(?)));
@@ -88,7 +87,8 @@ func (s *SqliteOsmDataRepository) GetBase(ctx context.Context, level int, bound 
 		return nil, fmt.Errorf("failed to marshal bound: %w", err)
 	}
 
-	rows, err := s.getBasePreparedStatement.QueryContext(ctx, strconv.Itoa(level), boundStr)
+	levelStr := fmt.Sprintf("%%%d%%", level)
+	rows, err := s.getBasePreparedStatement.QueryContext(ctx, levelStr, boundStr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute query: %w", err)
 	}
