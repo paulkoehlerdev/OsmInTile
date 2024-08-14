@@ -12,7 +12,7 @@ import (
 )
 
 type MapTilesService interface {
-	GetMapTile(ctx context.Context, tile maptile.Tile, acceptGzip bool) ([]byte, error)
+	GetMapTile(ctx context.Context, level int, tile maptile.Tile, acceptGzip bool) ([]byte, error)
 }
 
 type mapTilesService struct {
@@ -25,9 +25,9 @@ func NewMapTilesService(dataRepository repository.OsmDataRepository) MapTilesSer
 	}
 }
 
-func (m *mapTilesService) GetMapTile(ctx context.Context, tile maptile.Tile, acceptGzip bool) ([]byte, error) {
+func (m *mapTilesService) GetMapTile(ctx context.Context, level int, tile maptile.Tile, acceptGzip bool) ([]byte, error) {
 	bounds := tile.Bound(1)
-	collections, err := m.getFeaturesFor(ctx, bounds)
+	collections, err := m.getFeaturesFor(ctx, level, bounds)
 	if err != nil {
 		return nil, fmt.Errorf("error getting features: %w", err)
 	}
@@ -50,14 +50,14 @@ func (m *mapTilesService) GetMapTile(ctx context.Context, tile maptile.Tile, acc
 	return data, nil
 }
 
-func (m *mapTilesService) getFeaturesFor(ctx context.Context, bounds orb.Bound) (map[string]*geojson.FeatureCollection, error) {
-	pois, err := m.dataRepository.GetBuildings(ctx, bounds)
+func (m *mapTilesService) getFeaturesFor(ctx context.Context, level int, bounds orb.Bound) (map[string]*geojson.FeatureCollection, error) {
+	base, err := m.dataRepository.GetBase(ctx, level, bounds)
 	if err != nil {
 		return nil, fmt.Errorf("get pois failed: %w", err)
 	}
 
 	return map[string]*geojson.FeatureCollection{
-		"osm-indoor-buildings": pois,
+		"indoor-base": base,
 	}, nil
 }
 

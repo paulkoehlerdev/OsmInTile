@@ -8,5 +8,5 @@ import (
 
 type OsmDataRepository interface {
 	Import(ctx context.Context, path string) error
-	GetBuildings(ctx context.Context, bound orb.Bound) (*geojson.FeatureCollection, error)
+	GetBase(ctx context.Context, level int, bound orb.Bound) (*geojson.FeatureCollection, error)
 }

@@ -9,7 +9,7 @@ import (
 
 type Application interface {
 	GetMapStyle(ctx context.Context) (entities.MapStyle, error)
-	GetTile(ctx context.Context, x, y, z uint32, acceptGzip bool) ([]byte, error)
+	GetTile(ctx context.Context, level int, x, y, z uint32, acceptGzip bool) ([]byte, error)
 }
 
 type application struct {
@@ -28,11 +28,11 @@ func (app *application) GetMapStyle(ctx context.Context) (entities.MapStyle, err
 	return app.styleService.GetMapStyle(ctx)
 }
 
-func (app *application) GetTile(ctx context.Context, x, y, z uint32, acceptGzip bool) ([]byte, error) {
+func (app *application) GetTile(ctx context.Context, level int, x, y, z uint32, acceptGzip bool) ([]byte, error) {
 	tile := maptile.Tile{
 		X: x,
 		Y: y,
 		Z: maptile.Zoom(z),
 	}
-	return app.tilesService.GetMapTile(ctx, tile, acceptGzip)
+	return app.tilesService.GetMapTile(ctx, level, tile, acceptGzip)
 }

@@ -31,20 +31,17 @@ func (m *mapStyleService) defaultMapStyle() entities.MapStyle {
 		Version: 8,
 		Layers: []entities.Layer{
 			{
-				ID:          "osm-indoor-buildings",
-				Type:        "fill",
+				ID:          "indoor-base",
+				Type:        "line",
 				Source:      OSMINTILE_VECTOR_SOURCE,
-				SourceLayer: "osm-indoor-buildings",
-				FillLayer: &entities.FillLayer{
-					FillColor: "#FF0000",
-				},
+				SourceLayer: "indoor-base",
 			},
 		},
 		Sources: map[string]entities.Source{
 			OSMINTILE_VECTOR_SOURCE: {
 				Type: "vector",
 				TilesURLs: []string{
-					fmt.Sprintf("%s/tiles/{z}/{x}/{y}", m.publicUrl),
+					fmt.Sprintf("%s/tiles/-1/{z}/{x}/{y}", m.publicUrl),
 				},
 			},
 		},

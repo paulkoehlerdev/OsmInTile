@@ -4,7 +4,6 @@ import (
 	"compress/bzip2"
 	"context"
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"github.com/paulkoehlerdev/OsmInTile/migrations"
 	_ "github.com/paulkoehlerdev/OsmInTile/pkg/libraries/sqlitedriver"
@@ -36,8 +35,8 @@ func NewSqliteOsmDataRepository(sqliteConnString string) (*SqliteOsmDataReposito
 }
 
 type SqliteOsmDataRepository struct {
-	conn                          *sql.DB
-	getbuildingsPreparedStatement *sql.Stmt
+	conn                     *sql.DB
+	getBasePreparedStatement *sql.Stmt
 }
 
 func (s *SqliteOsmDataRepository) init() (*SqliteOsmDataRepository, error) {
@@ -46,15 +45,17 @@ func (s *SqliteOsmDataRepository) init() (*SqliteOsmDataRepository, error) {
 		return nil, fmt.Errorf("failed to prepare database: %w", err)
 	}
 
-	s.getbuildingsPreparedStatement, err = s.conn.Prepare(`
-		SELECT ST_AsBinary(ST_MakePolygon(ST_Collect(geom))) 
-		FROM node 
-		    JOIN way_node ON node.node_id = way_node.node_id
-			JOIN way ON way.way_id = way_node.way_id
-			JOIN way_tag ON way_tag.way_id = way_node.way_id
-		WHERE way_tag.key = 'building' AND way_tag.value = 'yes'
-		AND ST_Intersects(node.geom, ST_GeomFromWKB(?))
-		GROUP BY way.way_id
+	s.getBasePreparedStatement, err = s.conn.Prepare(`
+		SELECT ST_AsBinary((
+			SELECT MakeLine(geom)
+			FROM node
+					 JOIN main.way_node wn on node.node_id = wn.node_id
+			WHERE wn.way_id = way.way_id
+		)) as geom
+		FROM way
+		WHERE way.way_id IN (SELECT way_tag.way_id FROM way_tag WHERE way_tag.key = 'indoor')
+		  AND way.way_id IN (SELECT way_tag.way_id FROM way_tag WHERE way_tag.key = 'level' AND way_tag.value = '-1')
+		  AND way.way_id IN (SELECT DISTINCT way_node.way_id FROM way_node JOIN node on way_node.node_id = node.node_id WHERE ST_Intersects(node.geom, ST_GeomFromWKB(?)))
 	`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to prepare statement: %w", err)
@@ -78,13 +79,13 @@ func (s *SqliteOsmDataRepository) prepareDatabase() error {
 	return nil
 }
 
-func (s *SqliteOsmDataRepository) GetBuildings(ctx context.Context, bound orb.Bound) (*geojson.FeatureCollection, error) {
+func (s *SqliteOsmDataRepository) GetBase(ctx context.Context, level int, bound orb.Bound) (*geojson.FeatureCollection, error) {
 	boundStr, err := wkb.MarshalToHex(bound.ToPolygon())
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal bound: %w", err)
 	}
 
-	rows, err := s.getbuildingsPreparedStatement.QueryContext(ctx, boundStr)
+	rows, err := s.getBasePreparedStatement.QueryContext(ctx, boundStr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute query: %w", err)
 	}
@@ -109,9 +110,6 @@ func (s *SqliteOsmDataRepository) loadWBKRowsIntoGeojson(rows *sql.Rows) (*geojs
 
 		out.Append(geojson.NewFeature(geom))
 	}
-
-	d, _ := json.Marshal(out)
-	log.Println(string(d))
 
 	return out, nil
 }
@@ -144,9 +142,9 @@ func (s *SqliteOsmDataRepository) Import(ctx context.Context, path string) error
 		return fmt.Errorf("failed to create sqliteimporter: %w", err)
 	}
 
-	includedObjects := make(map[osm.ObjectID]struct{})
+	includedObjects := make(map[osm.FeatureID]struct{})
 
-	scanPasses := []func(osm.Scanner, map[osm.ObjectID]struct{}) error{
+	scanPasses := []func(osm.Scanner, map[osm.FeatureID]struct{}) error{
 		s.relationImportPass,
 		s.wayImportPass,
 		s.nodeImportPass,
@@ -179,10 +177,15 @@ func (s *SqliteOsmDataRepository) Import(ctx context.Context, path string) error
 	// apply insert pass
 	for scanner.Scan() {
 		obj := scanner.Object()
-		if _, ok := includedObjects[obj.ObjectID()]; !ok {
+
+		// can be cast, as ObjectID == ElementID for OSM Elements
+		elemID := osm.ElementID(obj.ObjectID()).FeatureID()
+
+		if _, ok := includedObjects[elemID]; !ok {
 			continue
 		}
 
+		delete(includedObjects, elemID)
 		err := sqlimporter.importObject(obj)
 		if err != nil {
 			return fmt.Errorf("failed to import osm database object: %w", err)
@@ -191,7 +194,7 @@ func (s *SqliteOsmDataRepository) Import(ctx context.Context, path string) error
 		count++
 	}
 
-	log.Printf("Imported %d objects", count)
+	log.Printf("Imported %d objects. %d Objects not found", count, len(includedObjects))
 
 	if err := scanner.Err(); err != nil {
 		return fmt.Errorf("failed to import osm dump file: %w", err)
@@ -209,11 +212,11 @@ func (s *SqliteOsmDataRepository) Import(ctx context.Context, path string) error
 // relation["indoor"]["indoor"!="yes"]
 // relation["buildingpart"~"room|verticalpassage|corridor"]
 // relation[~"amenity|shop|railway|highway|building:levels"~"."]
-func (s *SqliteOsmDataRepository) relationImportPass(scanner osm.Scanner, includedObjects map[osm.ObjectID]struct{}) error {
+func (s *SqliteOsmDataRepository) relationImportPass(scanner osm.Scanner, includedObjects map[osm.FeatureID]struct{}) error {
 	includeRelation := func(relation *osm.Relation) {
-		includedObjects[relation.ObjectID()] = struct{}{}
+		includedObjects[relation.FeatureID()] = struct{}{}
 		for _, member := range relation.Members {
-			includedObjects[member.ElementID().ObjectID()] = struct{}{}
+			includedObjects[member.FeatureID()] = struct{}{}
 		}
 	}
 
@@ -225,7 +228,7 @@ func (s *SqliteOsmDataRepository) relationImportPass(scanner osm.Scanner, includ
 		}
 
 		// early return for passthrough
-		if _, ok := includedObjects[relation.ObjectID()]; ok {
+		if _, ok := includedObjects[relation.FeatureID()]; ok {
 			includeRelation(relation)
 			continue
 		}
@@ -271,11 +274,11 @@ func (s *SqliteOsmDataRepository) relationImportPass(scanner osm.Scanner, includ
 // way["indoor"]["indoor"!="yes"]
 // way["buildingpart"~"room|verticalpassage|corridor"]
 // way[~"amenity|shop|railway|highway|building:levels"~"."]
-func (s *SqliteOsmDataRepository) wayImportPass(scanner osm.Scanner, includedObjects map[osm.ObjectID]struct{}) error {
+func (s *SqliteOsmDataRepository) wayImportPass(scanner osm.Scanner, includedObjects map[osm.FeatureID]struct{}) error {
 	includeWay := func(way *osm.Way) {
-		includedObjects[way.ObjectID()] = struct{}{}
+		includedObjects[way.FeatureID()] = struct{}{}
 		for _, node := range way.Nodes {
-			includedObjects[node.ElementID().ObjectID()] = struct{}{}
+			includedObjects[node.FeatureID()] = struct{}{}
 		}
 	}
 
@@ -288,7 +291,7 @@ func (s *SqliteOsmDataRepository) wayImportPass(scanner osm.Scanner, includedObj
 		}
 
 		// early return for passthrough
-		if _, ok := includedObjects[way.ObjectID()]; ok {
+		if _, ok := includedObjects[way.FeatureID()]; ok {
 			includeWay(way)
 			continue
 		}
@@ -332,7 +335,7 @@ func (s *SqliteOsmDataRepository) wayImportPass(scanner osm.Scanner, includedObj
 // nodeImportPass puts the neccessary objectids for the following filters into the list of imports
 // Filters in Overpass notation: (inferred from https://openlevelup.net/ api requests)
 // node[~"amenity|shop|railway|highway|door|entrance"~"."]
-func (s *SqliteOsmDataRepository) nodeImportPass(scanner osm.Scanner, includedObjects map[osm.ObjectID]struct{}) error {
+func (s *SqliteOsmDataRepository) nodeImportPass(scanner osm.Scanner, includedObjects map[osm.FeatureID]struct{}) error {
 	for scanner.Scan() {
 		obj := scanner.Object()
 
@@ -343,6 +346,11 @@ func (s *SqliteOsmDataRepository) nodeImportPass(scanner osm.Scanner, includedOb
 
 		tags := node.TagMap()
 
+		if _, ok := includedObjects[node.FeatureID()]; ok {
+			includedObjects[node.FeatureID()] = struct{}{}
+			continue
+		}
+
 		// node[~"amenity|shop|railway|highway|door|entrance"~"."]
 		contains := false
 		for _, v := range []string{"amenity", "shop", "railway", "highway", "door", "entrance"} {
@@ -352,7 +360,7 @@ func (s *SqliteOsmDataRepository) nodeImportPass(scanner osm.Scanner, includedOb
 			}
 		}
 		if contains {
-			includedObjects[node.ObjectID()] = struct{}{}
+			includedObjects[node.FeatureID()] = struct{}{}
 			continue
 		}
 	}
