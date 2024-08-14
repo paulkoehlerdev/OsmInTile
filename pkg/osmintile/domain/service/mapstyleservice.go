@@ -32,7 +32,7 @@ func (m *mapStyleService) defaultMapStyle() entities.MapStyle {
 		Layers: []entities.Layer{
 			{
 				ID:          "indoor-base",
-				Type:        "line",
+				Type:        "fill",
 				Source:      OSMINTILE_VECTOR_SOURCE,
 				SourceLayer: "indoor-base",
 			},

@@ -18,6 +18,7 @@ import (
 	"log"
 	"os"
 	"runtime"
+	"strconv"
 	"strings"
 )
 
@@ -47,15 +48,17 @@ func (s *SqliteOsmDataRepository) init() (*SqliteOsmDataRepository, error) {
 
 	s.getBasePreparedStatement, err = s.conn.Prepare(`
 		SELECT ST_AsBinary((
-			SELECT MakeLine(geom)
+			SELECT BuildArea(MakeLine(geom))
 			FROM node
-					 JOIN main.way_node wn on node.node_id = wn.node_id
+			JOIN main.way_node wn on node.node_id = wn.node_id
 			WHERE wn.way_id = way.way_id
 		)) as geom
 		FROM way
 		WHERE way.way_id IN (SELECT way_tag.way_id FROM way_tag WHERE way_tag.key = 'indoor')
-		  AND way.way_id IN (SELECT way_tag.way_id FROM way_tag WHERE way_tag.key = 'level' AND way_tag.value = '-1')
-		  AND way.way_id IN (SELECT DISTINCT way_node.way_id FROM way_node JOIN node on way_node.node_id = node.node_id WHERE ST_Intersects(node.geom, ST_GeomFromWKB(?)))
+		  AND way.way_id IN (SELECT way_tag.way_id FROM way_tag WHERE way_tag.key = 'level' AND way_tag.value = ?)
+		  AND (SELECT n.node_id FROM (SELECT way_node.node_id as node_id, MAX(way_node.sequence_id) FROM way_node WHERE way_node.way_id = way.way_id) as n) =
+			  (SELECT n.node_id FROM (SELECT way_node.node_id as node_id, MIN(way_node.sequence_id) FROM way_node WHERE way_node.way_id = way.way_id) as n)
+		  AND way.way_id IN (SELECT DISTINCT way_node.way_id FROM way_node JOIN node on way_node.node_id = node.node_id WHERE ST_Intersects(node.geom, ST_GeomFromWKB(?)));
 	`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to prepare statement: %w", err)
@@ -85,7 +88,7 @@ func (s *SqliteOsmDataRepository) GetBase(ctx context.Context, level int, bound 
 		return nil, fmt.Errorf("failed to marshal bound: %w", err)
 	}
 
-	rows, err := s.getBasePreparedStatement.QueryContext(ctx, boundStr)
+	rows, err := s.getBasePreparedStatement.QueryContext(ctx, strconv.Itoa(level), boundStr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute query: %w", err)
 	}
