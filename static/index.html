@@ -25,20 +25,19 @@
             style: '/style.json'
         });
         map.on('load', () => {
-            map.addSource('openstreetmap', {
-                'type': 'raster',
-                'tiles': [
-                    'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                ],
-            });
-
-            map.addLayer({
-                'id': 'openstreetmap',
-                'type': 'raster',
-                'source': 'openstreetmap',
-                'paint': {},
-                'attribution': '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-            }, 'indoor-base');
+            // map.addSource('openstreetmap', {
+            //     'type': 'raster',
+            //     'tiles': [
+            //         'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+            //     ],
+            // });
+            // map.addLayer({
+            //     'id': 'openstreetmap',
+            //     'type': 'raster',
+            //     'source': 'openstreetmap',
+            //     'paint': {},
+            //     'attribution': '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+            // }, 'indoor-base');
         })
     </script>
 </body>

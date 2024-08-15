@@ -36,8 +36,10 @@ func NewSqliteOsmDataRepository(sqliteConnString string) (*SqliteOsmDataReposito
 }
 
 type SqliteOsmDataRepository struct {
-	conn                     *sql.DB
-	getBasePreparedStatement *sql.Stmt
+	conn                          *sql.DB
+	getBasePreparedStatement      *sql.Stmt
+	getMapBoundsPreparedStatement *sql.Stmt
+	getMapCenterPreparedStatement *sql.Stmt
 }
 
 func (s *SqliteOsmDataRepository) init() (*SqliteOsmDataRepository, error) {
@@ -57,6 +59,7 @@ func (s *SqliteOsmDataRepository) init() (*SqliteOsmDataRepository, error) {
 		    SELECT json_group_object(way_tag.key, way_tag.value)
 		    FROM way_tag
 		    WHERE way_tag.way_id = way.way_id
+		      AND way_tag.key IN ('indoor', 'room')
 		) as json
 		FROM way
 		WHERE way.way_id IN (SELECT way_tag.way_id FROM way_tag WHERE way_tag.key = 'indoor')
@@ -70,6 +73,7 @@ func (s *SqliteOsmDataRepository) init() (*SqliteOsmDataRepository, error) {
 		    SELECT json_group_object(relation_tag.key, relation_tag.value)
 		    FROM relation_tag
 		    WHERE relation_tag.relation_id = s.relation_id
+		      AND relation_tag.key IN ('indoor', 'room')
 		) as json
 		FROM
 		(SELECT (
@@ -89,6 +93,22 @@ func (s *SqliteOsmDataRepository) init() (*SqliteOsmDataRepository, error) {
 		  AND member_id IN (SELECT DISTINCT way_node.way_id FROM way_node JOIN node on way_node.node_id = node.node_id WHERE ST_Intersects(node.geom, ST_GeomFromWKB(?)))
 		ORDER BY member_role = 'outer' DESC, sequence_id) as s
 		GROUP BY s.relation_id
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to prepare statement: %w", err)
+	}
+
+	s.getMapBoundsPreparedStatement, err = s.conn.Prepare(`
+		SELECT ST_AsBinary(Extent(n.geom)) as geom
+		FROM (SELECT Collect(geom) as geom FROM node) as n
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to prepare statement: %w", err)
+	}
+
+	s.getMapCenterPreparedStatement, err = s.conn.Prepare(`
+		SELECT ST_AsBinary(Centroid(n.geom)) as geom
+		FROM (SELECT Collect(geom) as geom FROM node) as n
 	`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to prepare statement: %w", err)
@@ -125,16 +145,55 @@ func (s *SqliteOsmDataRepository) GetBase(ctx context.Context, level int, bound 
 	}
 	defer rows.Close()
 
-	return s.loadWBKRowsIntoGeojson(rows)
+	return s.loadWBKRowsAndJsonPropertiesIntoGeojson(rows)
 }
 
-func (s *SqliteOsmDataRepository) loadWBKRowsIntoGeojson(rows *sql.Rows) (*geojson.FeatureCollection, error) {
+func (s *SqliteOsmDataRepository) GetMapBounds(ctx context.Context) (orb.Bound, error) {
+	row := s.getMapBoundsPreparedStatement.QueryRowContext(ctx)
+
+	var wkbBytes []byte
+	err := row.Scan(&wkbBytes)
+	if err != nil {
+		return orb.Bound{}, fmt.Errorf("failed to scan row: %w", err)
+	}
+
+	geom, err := wkb.Unmarshal(wkbBytes)
+	if err != nil {
+		return orb.Bound{}, fmt.Errorf("failed to unmarshal WKB: %w", err)
+	}
+
+	return geom.Bound(), nil
+}
+
+func (s *SqliteOsmDataRepository) GetMapCenter(ctx context.Context) (orb.Point, error) {
+	row := s.getMapCenterPreparedStatement.QueryRowContext(ctx)
+
+	var wkbBytes []byte
+	err := row.Scan(&wkbBytes)
+	if err != nil {
+		return orb.Point{}, fmt.Errorf("failed to scan row: %w", err)
+	}
+
+	geom, err := wkb.Unmarshal(wkbBytes)
+	if err != nil {
+		return orb.Point{}, fmt.Errorf("failed to unmarshal WKB: %w", err)
+	}
+
+	point, ok := geom.(orb.Point)
+	if !ok {
+		return orb.Point{}, fmt.Errorf("failed to cast to point, geom is not a point: %w", err)
+	}
+
+	return point, nil
+}
+
+func (s *SqliteOsmDataRepository) loadWBKRowsAndJsonPropertiesIntoGeojson(rows *sql.Rows) (*geojson.FeatureCollection, error) {
 	out := geojson.NewFeatureCollection()
 
 	for rows.Next() {
 		var wbkBytes []byte
-		var jsonStr string
-		if err := rows.Scan(&wbkBytes, &jsonStr); err != nil {
+		var propertiesStr string
+		if err := rows.Scan(&wbkBytes, &propertiesStr); err != nil {
 			return nil, fmt.Errorf("failed to scan row: %w", err)
 		}
 
@@ -145,7 +204,7 @@ func (s *SqliteOsmDataRepository) loadWBKRowsIntoGeojson(rows *sql.Rows) (*geojs
 
 		feat := geojson.NewFeature(geom)
 
-		err = json.Unmarshal([]byte(jsonStr), &feat.Properties)
+		err = json.Unmarshal([]byte(propertiesStr), &feat.Properties)
 		if err != nil {
 			return nil, fmt.Errorf("failed to unmarshal properties: %w", err)
 		}

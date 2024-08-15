@@ -1,7 +1,6 @@
 package http
 
 import (
-	"encoding/json"
 	"github.com/paulkoehlerdev/OsmInTile/pkg/osmintile/application"
 	"net/http"
 )
@@ -14,15 +13,9 @@ func MapStyleRoute(mux *http.ServeMux, application application.Application) {
 			return
 		}
 
-		styleJson, err := json.Marshal(style)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-
 		w.Header().Set("Content-Type", "application/json")
 
-		_, err = w.Write(styleJson)
+		_, err = w.Write(style)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return

@@ -13,7 +13,7 @@ import (
 
 func main() {
 	publicUrl := flag.String("public-url", "http://localhost:8080", "Public URL of OsmInTile")
-	databasePath := flag.String("database", ":memory:", "Database file path")
+	databasePath := flag.String("database", "file::memory:?cache=shared", "Database file path")
 	osmFile := flag.String("osm-file", "", "Import OSM file")
 	flag.Parse()
 
@@ -35,7 +35,10 @@ func main() {
 		}
 	}
 
-	styleSvc := service.NewMapStyleService(*publicUrl)
+	styleSvc, err := service.NewMapStyleService(*publicUrl, osmDataRepo)
+	if err != nil {
+		panic(err)
+	}
 
 	tilesSvc := service.NewMapTilesService(osmDataRepo)
 

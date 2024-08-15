@@ -1,0 +1,54 @@
+{
+  "version": 8,
+  "zoom": 13.5,
+  "layers": [
+    {
+      "id": "indoor-background",
+      "type": "background",
+      "paint": {
+        "background-color": "#dddddd"
+      }
+    },
+    {
+      "id": "indoor-base",
+      "type": "fill",
+      "source": "osmintile",
+      "source-layer": "indoor-base",
+      "paint": {
+        "fill-color": ["case",
+          ["all",
+            ["==", ["get", "indoor"], "room"],
+            ["==", ["get", "room"], "elevator"]
+          ], "#e5fee1",
+          ["all",
+            ["==", ["get", "indoor"], "room"],
+            ["==", ["get", "room"], "stairs"]
+          ], "#e1f3fe",
+          ["==", ["get", "indoor"], "room"], "#ffdaad",
+          ["==", ["get", "indoor"], "area"], "#ffdaad",
+          ["==", ["get", "indoor"], "corridor"], "#eeeeee",
+          "#dddddd"
+        ],
+        "fill-outline-color": ["case",
+          ["==", ["get", "indoor"], "room"], "#999999",
+          ["==", ["get", "indoor"], "area"], "#999999",
+          ["==", ["get", "indoor"], "corridor"], "#c8c8c8",
+          "#dddddd"
+        ]
+      }
+    }
+  ],
+  "sources": {
+    "osmintile": {
+      "type": "vector",
+      "tiles": [
+        "{{ .PublicURL }}/tiles/-1/{z}/{x}/{y}"
+      ],
+      "attribution": "©Openstreetmap Contributors",
+      "minzoom": 13,
+      "maxzoom": 22,
+      "bounds": {{ .Bounds }}
+    }
+  },
+  "center": {{ .Center }}
+}
